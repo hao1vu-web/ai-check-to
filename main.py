@@ -13,6 +13,7 @@ def get_contour(image_base64):
         if img is None: return None
         
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # Khử nhiễu và bóc biên dạng
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edged = cv2.Canny(blurred, 50, 150)
         contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -25,13 +26,25 @@ def get_contour(image_base64):
 def compare():
     data = request.json
     target_b64 = data.get('target_image')
+    masters_data = data.get('masters', []) # Danh sách ảnh mẫu từ Sheets gửi sang
     
     target_cnt = get_contour(target_b64)
     if target_cnt is None:
-        return jsonify({"error": "Không tìm thấy vật thể trong ảnh hoặc ảnh không hợp lệ"}), 200 # Trả về 200 để không báo lỗi đỏ
+        return jsonify({"error": "Không bóc tách được biên dạng ảnh chụp"}), 200
 
-    # Tạm thời trả về thông báo đã thấy ảnh để test luồng
-    return jsonify([{"to_id": "TEST_SUCCESS", "score": 0.0}])
+    results = []
+    for m in masters_data:
+        m_cnt = get_contour(m['image_b64'])
+        if m_cnt is not None:
+            # Thuật toán MatchShapes: 0.0 là giống hệt nhau, càng cao càng khác
+            score = cv2.matchShapes(target_cnt, m_cnt, 1, 0.0)
+            results.append({"to_id": m['to_id'], "score": score})
+
+    # Sắp xếp theo điểm số (thấp nhất lên đầu)
+    results.sort(key=lambda x: x['score'])
+    
+    # Trả về Top 3 mã giống nhất
+    return jsonify(results[:3])
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
